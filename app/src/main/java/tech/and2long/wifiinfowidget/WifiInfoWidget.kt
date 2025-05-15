@@ -59,6 +59,11 @@ class WifiInfoWidget : AppWidgetProvider() {
         remoteViews.setTextViewText(R.id.text_ip, "IP: $ip")
         remoteViews.setTextViewText(R.id.text_gateway, "网关: $gateway")
 
+        // 禁用根布局的点击事件，防止点击小部件启动 App
+        val emptyIntent = PendingIntent.getActivity(
+            context, 0, Intent(), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        remoteViews.setOnClickPendingIntent(R.id.widget_root, emptyIntent)
         // 设置刷新按钮点击事件
         val intent = Intent(context, WifiInfoWidget::class.java).apply {
             action = ACTION_REFRESH
