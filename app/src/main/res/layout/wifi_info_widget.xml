@@ -3,24 +3,30 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="8dp"
-    android:background="@drawable/widget_background">
+    android:padding="10dp"
+    android:background="@color/widget_background_color">
 
     <TextView
-        android:id="@+id/wifi_name"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:text="WiFi Info"
         android:textSize="16sp"
-        android:textColor="#FFFFFF"
-        android:text="Wifi名称: --" />
+        android:textColor="@color/widget_text_color" />
 
     <TextView
-        android:id="@+id/wifi_ip"
+        android:id="@+id/text_ip"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textSize="14sp"
-        android:textColor="#FFFFFF"
-        android:layout_marginTop="4dp"
-        android:text="IP地址: --" />
+        android:text="IP: --"
+        android:textSize="16sp"
+        android:textColor="@color/widget_text_color" />
+
+    <TextView
+        android:id="@+id/text_gateway"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Gateway: --"
+        android:textSize="16sp"
+        android:textColor="@color/widget_text_color" />
 
 </LinearLayout> 

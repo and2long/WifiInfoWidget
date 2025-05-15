@@ -16,12 +16,16 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.content.ComponentName
 import android.util.Log
+import java.net.InetAddress
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class WifiInfoWidget : AppWidgetProvider() {
 
     companion object {
         private val TAG = "WifiInfoWidget"
     }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -38,57 +42,13 @@ class WifiInfoWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int
     ) {
-        val views = RemoteViews(context.packageName, R.layout.wifi_info_widget)
-        
-        val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        
-        // 获取Wifi信息
-        val wifiInfo = wifiManager.connectionInfo
-        val networkCapabilities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-        } else null
+        val remoteViews = RemoteViews(context.packageName, R.layout.wifi_info_widget)
 
-        // 更新Wifi名称
-        val ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val wifiInfo = wifiManager.connectionInfo
-            if (wifiInfo != null && wifiInfo.ssid != null) {
-                wifiInfo.ssid.removeSurrounding("\"")
-            } else {
-                "未连接"
-            }
-        } else {
-            wifiInfo.ssid?.removeSurrounding("\"") ?: "未连接"
-        }
-        views.setTextViewText(R.id.wifi_name, "Wifi名称: $ssid")
+        val (ssid, ip, gateway) = getWifiDetails(context)
+        remoteViews.setTextViewText(R.id.text_ip, "IP: $ip")
+        remoteViews.setTextViewText(R.id.text_gateway, "Gateway: $gateway")
 
-        // 更新IP地址
-        val ipAddress = wifiInfo.ipAddress
-        val ipString = if (ipAddress != 0) {
-            String.format(
-                "%d.%d.%d.%d",
-                ipAddress and 0xff,
-                ipAddress shr 8 and 0xff,
-                ipAddress shr 16 and 0xff,
-                ipAddress shr 24 and 0xff
-            )
-        } else "未获取到"
-        views.setTextViewText(R.id.wifi_ip, "IP地址: $ipString")
-
-        // 添加点击刷新功能
-        val refreshIntent = Intent(context, WifiInfoWidget::class.java).apply {
-            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
-        }
-        val refreshPendingIntent = PendingIntent.getBroadcast(
-            context,
-            appWidgetId,
-            refreshIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        views.setOnClickPendingIntent(R.id.wifi_name, refreshPendingIntent)
-
-        appWidgetManager.updateAppWidget(appWidgetId, views)
+        appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
     }
 
     override fun onEnabled(context: Context) {
@@ -96,29 +56,8 @@ class WifiInfoWidget : AppWidgetProvider() {
         // 注册 WiFi 状态变化的广播接收器
         val filter = IntentFilter().apply {
             addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
-            addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
         }
         context.registerReceiver(wifiStateReceiver, filter)
-
-        // 设置定时更新
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, WifiInfoWidget::class.java).apply {
-            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        
-        // 每3秒更新一次
-        alarmManager.setRepeating(
-            AlarmManager.RTC,
-            System.currentTimeMillis(),
-            3000,
-            pendingIntent
-        )
     }
 
     override fun onDisabled(context: Context) {
@@ -129,19 +68,6 @@ class WifiInfoWidget : AppWidgetProvider() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        // 取消定时更新
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, WifiInfoWidget::class.java).apply {
-            action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        alarmManager.cancel(pendingIntent)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -163,4 +89,36 @@ class WifiInfoWidget : AppWidgetProvider() {
             onUpdate(context, appWidgetManager, appWidgetIds)
         }
     }
+
+    fun getWifiDetails(context: Context): Triple<String, String, String> {
+        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val dhcpInfo = wifiManager.dhcpInfo
+        val wifiInfo = wifiManager.connectionInfo
+
+        // 1. 获取 SSID
+        val ssid = if (wifiInfo.ssid != WifiManager.UNKNOWN_SSID) {
+            wifiInfo.ssid.trim('"')
+        } else {
+            "未知 Wi-Fi"
+        }
+
+        // 2. 获取 IP 地址
+        val ipAddress = if (wifiInfo.ipAddress != 0) {
+            val ipBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(wifiInfo.ipAddress).array()
+            InetAddress.getByAddress(ipBytes).hostAddress ?: "未知"
+        } else {
+            "未连接"
+        }
+
+        // 3. 获取网关地址
+        val gatewayAddress = if (dhcpInfo.gateway != 0) {
+            val gatewayBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dhcpInfo.gateway).array()
+            InetAddress.getByAddress(gatewayBytes).hostAddress ?: "未知"
+        } else {
+            "未知"
+        }
+
+        return Triple(ssid, ipAddress, gatewayAddress)
+    }
+
 }
