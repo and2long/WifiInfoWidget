@@ -1,20 +1,12 @@
 package tech.and2long.wifiinfowidget
 
-import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
-import android.net.wifi.WifiManager
-import android.os.Build
 import android.widget.RemoteViews
-import android.net.wifi.WifiInfo
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
-import android.content.ComponentName
+import android.net.wifi.WifiManager
 import android.util.Log
 import java.net.InetAddress
 import java.nio.ByteBuffer
@@ -23,7 +15,8 @@ import java.nio.ByteOrder
 class WifiInfoWidget : AppWidgetProvider() {
 
     companion object {
-        private val TAG = "WifiInfoWidget"
+        private const val TAG = "WifiInfoWidget"
+        private const val ACTION_REFRESH = "tech.and2long.wifiinfowidget.ACTION_REFRESH"
     }
 
     override fun onUpdate(
@@ -31,9 +24,27 @@ class WifiInfoWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        Log.d(TAG, "onUpdate: ")
+        Log.d(TAG, "onUpdate() called with: appWidgetIds = ${appWidgetIds.toList()}")
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        Log.d(TAG, "onReceive() called with: intent = $intent")
+        if (intent.action == ACTION_REFRESH) {
+            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val ids = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
+                ?: appWidgetManager.getAppWidgetIds(
+                    android.content.ComponentName(
+                        context,
+                        WifiInfoWidget::class.java
+                    )
+                )
+            for (appWidgetId in ids) {
+                updateAppWidget(context, appWidgetManager, appWidgetId)
+            }
         }
     }
 
@@ -42,77 +53,53 @@ class WifiInfoWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int
     ) {
+        Log.d(TAG, "updateAppWidget() called with: appWidgetId = $appWidgetId")
         val remoteViews = RemoteViews(context.packageName, R.layout.wifi_info_widget)
-
         val (ssid, ip, gateway) = getWifiDetails(context)
         remoteViews.setTextViewText(R.id.text_ip, "IP: $ip")
-        remoteViews.setTextViewText(R.id.text_gateway, "Gateway: $gateway")
+        remoteViews.setTextViewText(R.id.text_gateway, "网关: $gateway")
+
+        // 设置刷新按钮点击事件
+        val intent = Intent(context, WifiInfoWidget::class.java).apply {
+            action = ACTION_REFRESH
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            appWidgetId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        remoteViews.setOnClickPendingIntent(R.id.btn_refresh, pendingIntent)
 
         appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
     }
 
-    override fun onEnabled(context: Context) {
-        super.onEnabled(context)
-        // 注册 WiFi 状态变化的广播接收器
-        val filter = IntentFilter().apply {
-            addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
-        }
-        context.registerReceiver(wifiStateReceiver, filter)
-    }
-
-    override fun onDisabled(context: Context) {
-        super.onDisabled(context)
-        // 取消注册广播接收器
-        try {
-            context.unregisterReceiver(wifiStateReceiver)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_UPDATE) {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val appWidgetIds = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS)
-            if (appWidgetIds != null) {
-                onUpdate(context, appWidgetManager, appWidgetIds)
-            }
-        }
-    }
-
-    private val wifiStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val componentName = ComponentName(context, WifiInfoWidget::class.java)
-            val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-            onUpdate(context, appWidgetManager, appWidgetIds)
-        }
-    }
-
-    fun getWifiDetails(context: Context): Triple<String, String, String> {
-        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+    private fun getWifiDetails(context: Context): Triple<String, String, String> {
+        val wifiManager =
+            context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val dhcpInfo = wifiManager.dhcpInfo
         val wifiInfo = wifiManager.connectionInfo
 
-        // 1. 获取 SSID
         val ssid = if (wifiInfo.ssid != WifiManager.UNKNOWN_SSID) {
             wifiInfo.ssid.trim('"')
         } else {
             "未知 Wi-Fi"
         }
 
-        // 2. 获取 IP 地址
         val ipAddress = if (wifiInfo.ipAddress != 0) {
-            val ipBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(wifiInfo.ipAddress).array()
+            val ipBytes =
+                ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(wifiInfo.ipAddress)
+                    .array()
             InetAddress.getByAddress(ipBytes).hostAddress ?: "未知"
         } else {
             "未连接"
         }
 
-        // 3. 获取网关地址
         val gatewayAddress = if (dhcpInfo.gateway != 0) {
-            val gatewayBytes = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dhcpInfo.gateway).array()
+            val gatewayBytes =
+                ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dhcpInfo.gateway)
+                    .array()
             InetAddress.getByAddress(gatewayBytes).hostAddress ?: "未知"
         } else {
             "未知"
@@ -120,5 +107,4 @@ class WifiInfoWidget : AppWidgetProvider() {
 
         return Triple(ssid, ipAddress, gatewayAddress)
     }
-
 }
