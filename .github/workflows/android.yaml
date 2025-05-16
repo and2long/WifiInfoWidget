@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK and Release
@@ -31,8 +34,11 @@ jobs:
       - name: Extract changelog
         id: changelog
         run: |
+          # 从标签中提取版本号
           VERSION=${GITHUB_REF#refs/tags/}
-          CHANGELOG=$(sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d')
+          # 使用脚本提取更新内容
+          CHANGELOG=$(./scripts/extract_changelog.sh "$VERSION")
+          # 设置输出变量
           echo "changelog<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
